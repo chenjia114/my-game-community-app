@@ -7,6 +7,7 @@ node_modules/
 .expo/
 dist/
 web-build/
+dist-api/
 expo-env.d.ts
 
 # Native
@@ -31,6 +32,7 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
@@ -41,3 +43,27 @@ app-example
 # generated native folders
 /ios
 /android
+
+# ====================
+# 正式上线清理
+# ====================
+
+# 测试输出与调试 dump 文件
+scripts/*_output.txt
+scripts/*_dump.txt
+scripts/*_probe.txt
+scripts/*_dump.py
+scripts/root_dump.txt
+
+# Claude / agent 配置
+.mcp.json
+.agents/
+.claude/
+.trae/
+
+# skills 配置
+skills-lock.json
+skills/
+
+# 文档（按需启用）
+# docs/

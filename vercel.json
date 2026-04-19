@@ -1,7 +1,15 @@
 {
-  "buildCommand": "npx expo export",
-  "outputDirectory": "dist",
+  "buildCommand": "npx expo export -p web",
+  "outputDirectory": "dist/client",
   "installCommand": "npm install",
+  "framework": null,
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/:path*",
+      "destination": "/"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",

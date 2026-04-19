@@ -2,6 +2,7 @@
  * useLikes - 点赞功能 Hook
  */
 import { useState, useCallback } from 'react'
+import { getApiUrl } from '@/lib/api-base'
 
 export function useLikes() {
   const [isLoading, setIsLoading] = useState(false)
@@ -13,7 +14,7 @@ export function useLikes() {
     setError(null)
 
     try {
-      const response = await fetch('/api/likes', {
+      const response = await fetch(getApiUrl('/api/likes'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -45,7 +46,7 @@ export function useLikes() {
     setError(null)
 
     try {
-      const response = await fetch('/api/likes', {
+      const response = await fetch(getApiUrl('/api/likes'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

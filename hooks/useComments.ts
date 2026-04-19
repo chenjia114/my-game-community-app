@@ -3,6 +3,7 @@
  */
 import { useState, useCallback } from 'react'
 import type { Comment, CreateCommentRequest } from '@/lib/types'
+import { getApiUrl } from '@/lib/api-base'
 
 interface FetchRecentCommentsOptions {
   limit?: number
@@ -84,7 +85,7 @@ export function useComments() {
     setError(null)
 
     try {
-      const response = await fetch('/api/comments', {
+      const response = await fetch(getApiUrl('/api/comments'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -125,7 +126,7 @@ export function useComments() {
     setError(null)
 
     try {
-      const response = await fetch('/api/admin/comments', {
+      const response = await fetch(getApiUrl('/api/admin/comments'), {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',

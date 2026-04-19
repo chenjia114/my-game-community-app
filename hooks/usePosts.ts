@@ -3,6 +3,7 @@
  */
 import { useState, useCallback } from 'react'
 import type { Post, CreatePostRequest } from '@/lib/types'
+import { getApiUrl } from '@/lib/api-base'
 
 export function usePosts() {
   const [posts, setPosts] = useState<Post[]>([])
@@ -33,7 +34,7 @@ export function usePosts() {
         params.set('orderBy', options.orderBy)
       }
 
-      const response = await fetch(`/api/posts${params.toString() ? `?${params.toString()}` : ''}`)
+      const response = await fetch(getApiUrl(`/api/posts${params.toString() ? `?${params.toString()}` : ''}`))
       const result = (await response.json().catch(() => null)) as {
         posts?: Post[]
         error?: string
@@ -60,7 +61,7 @@ export function usePosts() {
     setError(null)
 
     try {
-      const response = await fetch(`/api/posts?id=${encodeURIComponent(postId)}`)
+      const response = await fetch(getApiUrl(`/api/posts?id=${encodeURIComponent(postId)}`))
       const result = (await response.json().catch(() => null)) as {
         post?: Post | null
         error?: string
@@ -85,7 +86,7 @@ export function usePosts() {
     setError(null)
 
     try {
-      const response = await fetch(`/api/posts?id=${encodeURIComponent(postId)}`)
+      const response = await fetch(getApiUrl(`/api/posts?id=${encodeURIComponent(postId)}`))
       const result = (await response.json().catch(() => null)) as {
         post?: Post | null
         error?: string
@@ -115,7 +116,7 @@ export function usePosts() {
     setError(null)
 
     try {
-      const response = await fetch('/api/posts', {
+      const response = await fetch(getApiUrl('/api/posts'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -148,7 +149,7 @@ export function usePosts() {
     setError(null)
 
     try {
-      const response = await fetch('/api/admin/posts', {
+      const response = await fetch(getApiUrl('/api/admin/posts'), {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -180,7 +181,7 @@ export function usePosts() {
     setError(null)
 
     try {
-      const response = await fetch(`/api/posts?query=${encodeURIComponent(keyword)}&limit=50`)
+      const response = await fetch(getApiUrl(`/api/posts?query=${encodeURIComponent(keyword)}&limit=50`))
       const result = (await response.json().catch(() => null)) as {
         posts?: Post[]
         error?: string
@@ -207,7 +208,7 @@ export function usePosts() {
     setError(null)
 
     try {
-      const response = await fetch('/api/news', {
+      const response = await fetch(getApiUrl('/api/news'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

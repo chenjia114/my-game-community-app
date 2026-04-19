@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { User } from '@/lib/types'
+import { getApiUrl } from '@/lib/api-base'
 
 const VISITOR_ID_KEY = '@visitor_id'
 const NICKNAME_KEY = '@visitor_nickname'
@@ -50,7 +51,7 @@ export function useVisitor() {
 
   const syncVisitorProfile = useCallback(async (currentVisitorId: string): Promise<User | null> => {
     try {
-      const response = await fetch('/api/profile/nickname', {
+      const response = await fetch(getApiUrl('/api/profile/nickname'), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -109,7 +110,7 @@ export function useVisitor() {
     if (!trimmedNickname) return false
 
     try {
-      const response = await fetch('/api/profile/nickname', {
+      const response = await fetch(getApiUrl('/api/profile/nickname'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -145,7 +146,7 @@ export function useVisitor() {
     if (!visitorId) return null
 
     try {
-      const response = await fetch(`/api/profile/nickname?visitorId=${encodeURIComponent(visitorId)}`)
+      const response = await fetch(getApiUrl(`/api/profile/nickname?visitorId=${encodeURIComponent(visitorId)}`))
       const result = (await response.json().catch(() => null)) as {
         user?: User | null
         error?: string

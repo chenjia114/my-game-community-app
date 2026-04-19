@@ -5,6 +5,7 @@
 import { useState, useCallback } from 'react'
 import { searchGameNews, crawlNews } from '@/lib/tavily'
 import type { Post, TavilyNews } from '@/lib/types'
+import { getApiUrl } from '@/lib/api-base'
 
 export function useNews() {
   const [news, setNews] = useState<TavilyNews[]>([])
@@ -64,7 +65,7 @@ export function useNews() {
         return 0
       }
 
-      const response = await fetch('/api/news', {
+      const response = await fetch(getApiUrl('/api/news'), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

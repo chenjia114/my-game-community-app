@@ -19,6 +19,7 @@ export default function TabLayout() {
         tabBarStyle: styles.tabBar,
         tabBarLabelStyle: styles.tabBarLabel,
         tabBarItemStyle: styles.tabBarItem,
+        tabBarHideOnKeyboard: false,
       }}
     >
       <Tabs.Screen
@@ -70,7 +71,7 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.light.tabBarBorder,
     paddingTop: 8,
     paddingBottom: 8,
-    height: 60,
+    height: 72,
   },
   tabBarLabel: {
     fontSize: 11,

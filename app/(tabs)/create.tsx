@@ -88,7 +88,26 @@ export default function CreateScreen() {
   }, [content, isSubmitting, nickname, selectedImage, title, visitorId])
 
   // 选择图片
-  const pickImage = async () => {
+  const pickImage = useCallback(async () => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'image/*'
+      input.onchange = () => {
+        const file = input.files?.[0]
+        if (!file) {
+          return
+        }
+
+        setSelectedImage({
+          previewUrl: URL.createObjectURL(file),
+          uploadSource: file,
+        })
+      }
+      input.click()
+      return
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -97,7 +116,6 @@ export default function CreateScreen() {
     })
 
     if (!result.canceled && result.assets[0]) {
-      // Web 端优先保留真实文件对象，上传时直接用它，避免 blob URL 二次读取失败。
       const asset = result.assets[0] as ImagePicker.ImagePickerAsset & { file?: File }
 
       if (Platform.OS === 'web' && asset.file) {
@@ -113,7 +131,7 @@ export default function CreateScreen() {
         uploadSource: asset.uri,
       })
     }
-  }
+  }, [])
 
   // 提交帖子
   const handleSubmit = useCallback(async () => {

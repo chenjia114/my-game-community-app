@@ -2,7 +2,7 @@
  * 我的页面 - 查看自己发布的帖子
  * 基于 Vibrant & Block-based 暗色游戏风
  */
-import { useState, useEffect, useCallback, memo } from 'react'
+import { useState, useEffect, useCallback, memo, useRef } from 'react'
 import {
   StyleSheet,
   View,
@@ -35,6 +35,7 @@ interface ProfileHeaderProps {
   hasLoadedPosts: boolean
   showAdminEntry: boolean
   avatarTapCount: number
+  nicknameInputRef: React.RefObject<TextInput | null>
   onChangeNickname: (value: string) => void
   onSaveNickname: () => void
   onPressAdmin: () => void
@@ -52,6 +53,7 @@ const ProfileHeader = memo(function ProfileHeader({
   hasLoadedPosts,
   showAdminEntry,
   avatarTapCount,
+  nicknameInputRef,
   onChangeNickname,
   onSaveNickname,
   onPressAdmin,
@@ -103,6 +105,7 @@ const ProfileHeader = memo(function ProfileHeader({
           </ThemedText>
         </View>
         <TextInput
+          ref={nicknameInputRef}
           style={[styles.nicknameInput, isNicknameLocked && styles.nicknameInputDisabled]}
           value={editingNickname}
           onChangeText={onChangeNickname}
@@ -168,6 +171,7 @@ export default function MyScreen() {
   const [isSavingNickname, setIsSavingNickname] = useState(false)
   const [avatarTapCount, setAvatarTapCount] = useState(0)
   const [showAdminEntry, setShowAdminEntry] = useState(false)
+  const nicknameInputRef = useRef<TextInput>(null)
 
   const { fetchPosts } = usePosts()
   const {
@@ -265,6 +269,10 @@ export default function MyScreen() {
       return
     }
 
+    if (Platform.OS === 'web') {
+      nicknameInputRef.current?.blur()
+    }
+
     setAvatarTapCount((prev) => {
       const nextCount = prev + 1
 
@@ -276,7 +284,7 @@ export default function MyScreen() {
 
       return nextCount
     })
-  }, [handlePressAdmin, showAdminEntry])
+  }, [handlePressAdmin, nicknameInputRef, showAdminEntry])
 
   // 渲染帖子
   const renderPostItem = ({ item }: { item: Post }) => (
@@ -320,7 +328,7 @@ export default function MyScreen() {
   return (
     <ThemedView style={styles.container}>
       <FlatList
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         data={myPosts}
         renderItem={renderPostItem}
         keyExtractor={(item) => item.id}
@@ -336,6 +344,7 @@ export default function MyScreen() {
             hasLoadedPosts={hasLoadedPosts}
             showAdminEntry={showAdminEntry}
             avatarTapCount={avatarTapCount}
+            nicknameInputRef={nicknameInputRef}
             onChangeNickname={handleChangeNickname}
             onSaveNickname={handleSaveNickname}
             onPressAdmin={handlePressAdmin}

@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
+  Platform,
 } from 'react-native'
 import { MaterialIcons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
@@ -33,6 +34,7 @@ interface ProfileHeaderProps {
   myPosts: Post[]
   hasLoadedPosts: boolean
   showAdminEntry: boolean
+  avatarTapCount: number
   onChangeNickname: (value: string) => void
   onSaveNickname: () => void
   onPressAdmin: () => void
@@ -49,6 +51,7 @@ const ProfileHeader = memo(function ProfileHeader({
   myPosts,
   hasLoadedPosts,
   showAdminEntry,
+  avatarTapCount,
   onChangeNickname,
   onSaveNickname,
   onPressAdmin,
@@ -58,12 +61,17 @@ const ProfileHeader = memo(function ProfileHeader({
     <View style={styles.profileSection}>
       {/* 头像 */}
       <TouchableOpacity style={styles.avatarContainer} activeOpacity={0.9} onPress={onPressAvatar}>
-        <View style={styles.avatar}>
+        <View style={styles.avatar} pointerEvents="none">
           <ThemedText style={styles.avatarText}>
             {nickname?.charAt(0).toUpperCase() || '?'}
           </ThemedText>
+          {!showAdminEntry ? (
+            <ThemedText style={styles.avatarTapHint} pointerEvents="none">
+              {avatarTapCount > 0 ? `${avatarTapCount}/10` : ''}
+            </ThemedText>
+          ) : null}
         </View>
-        <View style={styles.avatarRing} />
+        <View style={styles.avatarRing} pointerEvents="none" />
       </TouchableOpacity>
 
       {/* 用户名 */}
@@ -102,6 +110,8 @@ const ProfileHeader = memo(function ProfileHeader({
           placeholder="输入你想使用的昵称"
           placeholderTextColor={Colors.light.textMuted}
           maxLength={20}
+          autoCorrect={false}
+          autoCapitalize="none"
         />
         <ThemedText style={styles.nicknameHelpText}>
           {isNicknameLocked
@@ -156,7 +166,7 @@ export default function MyScreen() {
   const [hasLoadedPosts, setHasLoadedPosts] = useState(false)
   const [editingNickname, setEditingNickname] = useState('')
   const [isSavingNickname, setIsSavingNickname] = useState(false)
-  const [, setAvatarTapCount] = useState(0)
+  const [avatarTapCount, setAvatarTapCount] = useState(0)
   const [showAdminEntry, setShowAdminEntry] = useState(false)
 
   const { fetchPosts } = usePosts()
@@ -251,6 +261,7 @@ export default function MyScreen() {
 
   const handlePressAvatar = useCallback(() => {
     if (showAdminEntry) {
+      handlePressAdmin()
       return
     }
 
@@ -265,7 +276,7 @@ export default function MyScreen() {
 
       return nextCount
     })
-  }, [showAdminEntry])
+  }, [handlePressAdmin, showAdminEntry])
 
   // 渲染帖子
   const renderPostItem = ({ item }: { item: Post }) => (
@@ -309,6 +320,7 @@ export default function MyScreen() {
   return (
     <ThemedView style={styles.container}>
       <FlatList
+        keyboardShouldPersistTaps="handled"
         data={myPosts}
         renderItem={renderPostItem}
         keyExtractor={(item) => item.id}
@@ -323,6 +335,7 @@ export default function MyScreen() {
             myPosts={myPosts}
             hasLoadedPosts={hasLoadedPosts}
             showAdminEntry={showAdminEntry}
+            avatarTapCount={avatarTapCount}
             onChangeNickname={handleChangeNickname}
             onSaveNickname={handleSaveNickname}
             onPressAdmin={handlePressAdmin}
@@ -361,6 +374,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.light.border,
     marginBottom: 16,
+    ...(Platform.OS === 'web'
+      ? {
+          userSelect: 'text',
+        }
+      : null),
   },
   avatarContainer: {
     position: 'relative',
@@ -379,6 +397,14 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: '700',
     color: '#fff',
+  },
+  avatarTapHint: {
+    position: 'absolute',
+    bottom: 6,
+    right: 8,
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.75)',
   },
   avatarRing: {
     position: 'absolute',

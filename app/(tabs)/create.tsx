@@ -13,6 +13,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
 } from 'react-native'
 import { Image } from 'expo-image'
 import { MaterialIcons } from '@expo/vector-icons'
@@ -307,16 +308,17 @@ export default function CreateScreen() {
                 </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity
-                style={styles.imagePicker}
-                onPress={pickImage}
-                activeOpacity={0.7}
+              <Pressable
+                style={({ pressed }) => [styles.imagePicker, pressed && styles.imagePickerPressed]}
+                onPress={() => {
+                  void pickImage()
+                }}
                 testID="create-image-picker"
               >
                 <MaterialIcons name="add-photo-alternate" size={48} color={Colors.light.textMuted} />
                 <ThemedText style={styles.imagePickerText}>点击上传封面图</ThemedText>
                 <ThemedText style={styles.imagePickerHint}>推荐 16:9 比例的图片</ThemedText>
-              </TouchableOpacity>
+              </Pressable>
             )}
           </View>
         </ScrollView>
@@ -429,6 +431,11 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.light.border,
     borderStyle: 'dashed',
+    cursor: 'pointer',
+  },
+  imagePickerPressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.99 }],
   },
   imagePickerText: {
     fontSize: 16,

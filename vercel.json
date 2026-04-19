@@ -1,15 +1,21 @@
 {
   "buildCommand": "npx expo export -p web",
-  "outputDirectory": "dist/client",
+  "outputDirectory": "dist",
   "installCommand": "npm install",
   "framework": null,
   "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/:path*",
-      "destination": "/"
+      "source": "/(.*)",
+      "destination": "/api/index"
     }
   ],
+  "functions": {
+    "api/index.ts": {
+      "runtime": "@vercel/node@5.1.8",
+      "includeFiles": "dist/server/**"
+    }
+  },
   "headers": [
     {
       "source": "/api/(.*)",

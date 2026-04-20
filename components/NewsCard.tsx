@@ -6,6 +6,7 @@ import { Image } from 'expo-image'
 import { StyleSheet, TouchableOpacity, View } from 'react-native'
 
 import { Colors } from '@/constants/theme'
+import { extractDomain } from '@/lib/tavily'
 import type { TavilyNews } from '@/lib/types'
 
 import { ThemedText } from './themed-text'
@@ -14,16 +15,6 @@ interface NewsCardProps {
   news: TavilyNews
   imageUrl?: string
   onPress?: () => void
-}
-
-// 从资讯链接中提取来源域名
-function extractDomain(url: string): string {
-  try {
-    const hostname = new URL(url).hostname
-    return hostname.replace('www.', '')
-  } catch {
-    return url
-  }
 }
 
 export function NewsCard({ news, imageUrl, onPress }: NewsCardProps) {

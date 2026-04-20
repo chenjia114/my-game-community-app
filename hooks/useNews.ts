@@ -61,7 +61,6 @@ export function useNews() {
       const posts = await crawlNews(keyword, maxResults)
 
       if (posts.length === 0) {
-        setError('未找到相关资讯')
         return 0
       }
 
@@ -88,7 +87,7 @@ export function useNews() {
     } catch (err: any) {
       const message = err?.message || '资讯发布失败'
       setError(message)
-      return 0
+      throw new Error(message)
     } finally {
       setIsLoading(false)
     }
@@ -105,7 +104,7 @@ export function useNews() {
     setError(null)
 
     try {
-      const response = await fetch(`/api/posts?sourceType=crawl&limit=${encodeURIComponent(String(limit))}`)
+      const response = await fetch(getApiUrl(`/api/posts?sourceType=crawl&limit=${encodeURIComponent(String(limit))}`))
       const result = (await response.json().catch(() => null)) as {
         posts?: Post[]
         error?: string

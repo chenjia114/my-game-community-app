@@ -2,13 +2,40 @@
  * Tavily 数据转换工具
  * 用于标准化服务端返回的资讯数据
  */
+import { getApiUrl } from './api-base'
 import type { TavilyNews, TavilySearchResponse } from './types'
+
+export const DEFAULT_CHINESE_NEWS_DOMAINS = [
+  '3dmgame.com',
+  'gamersky.com',
+  'ali213.net',
+  '17173.com',
+  'a9vg.com',
+  'gcores.com',
+  'tgbus.com',
+  'duowan.com',
+] as const
 
 export interface SearchOptions {
   query: string
   maxResults?: number
   topic?: 'general' | 'news' | 'finance'
   timeRange?: 'day' | 'week' | 'month' | 'year'
+  includeDomains?: string[]
+  excludeDomains?: string[]
+}
+
+export function extractDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace('www.', '')
+  } catch {
+    return url
+  }
+}
+
+export function isAllowedChineseNewsDomain(url: string, includeDomains: readonly string[]): boolean {
+  const domain = extractDomain(url)
+  return includeDomains.some((allowedDomain) => domain === allowedDomain || domain.endsWith(`.${allowedDomain}`))
 }
 
 // 搜索结果（包含图片列表）
@@ -35,9 +62,16 @@ export function normalizeTavilyResponse(data: Partial<TavilySearchResponse>): Se
  * @returns 搜索结果（包含资讯列表和图片列表）
  */
 export async function searchGameNews(options: SearchOptions): Promise<SearchResult> {
-  const { query, maxResults = 10, topic = 'news', timeRange = 'week' } = options
+  const {
+    query,
+    maxResults = 10,
+    topic = 'news',
+    timeRange = 'week',
+    includeDomains,
+    excludeDomains,
+  } = options
 
-  const response = await fetch('/api/news', {
+  const response = await fetch(getApiUrl('/api/news'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -47,6 +81,8 @@ export async function searchGameNews(options: SearchOptions): Promise<SearchResu
       maxResults,
       topic,
       timeRange,
+      includeDomains,
+      excludeDomains,
     }),
   })
 
@@ -67,16 +103,20 @@ export async function searchGameNews(options: SearchOptions): Promise<SearchResu
  */
 export async function crawlNews(
   keyword: string,
-  maxResults: number = 20
+  maxResults: number = 20,
+  includeDomains: string[] = [...DEFAULT_CHINESE_NEWS_DOMAINS]
 ): Promise<Omit<import('./types').Post, 'id' | 'created_at'>[]> {
   const { results, images } = await searchGameNews({
     query: keyword,
     maxResults,
     topic: 'news',
     timeRange: 'week',
+    includeDomains,
   })
 
-  return results.map((news, index) => ({
+  const filteredResults = results.filter((news) => isAllowedChineseNewsDomain(news.url, includeDomains))
+
+  return filteredResults.map((news, index) => ({
     title: news.title,
     content: news.content,
     author_name: '系统资讯',

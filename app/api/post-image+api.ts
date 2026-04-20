@@ -14,15 +14,17 @@ export async function POST(request: Request) {
       return Response.json({ error: 'visitorId 不能为空' }, { status: 400 })
     }
 
-    if (!(file instanceof File)) {
+    if (!file || typeof file === 'string' || typeof (file as File).arrayBuffer !== 'function') {
       return Response.json({ error: '图片文件不能为空' }, { status: 400 })
     }
 
-    const extensionMatch = file.name.match(/\.([a-zA-Z0-9]+)$/)
+    const uploadFile = file as File
+    const fileName = typeof uploadFile.name === 'string' ? uploadFile.name : 'post-image.jpg'
+    const extensionMatch = fileName.match(/\.([a-zA-Z0-9]+)$/)
     const extension = extensionMatch?.[1]?.toLowerCase() || 'jpg'
     const filePath = `${visitorId}/${Date.now()}.${extension}`
-    const contentType = file.type || 'image/jpeg'
-    const fileBytes = await file.arrayBuffer()
+    const contentType = uploadFile.type || 'image/jpeg'
+    const fileBytes = await uploadFile.arrayBuffer()
 
     const supabase = getSupabaseAdminClient()
     const { error } = await supabase.storage.from('post-images').upload(filePath, fileBytes, {
@@ -31,7 +33,7 @@ export async function POST(request: Request) {
     })
 
     if (error) {
-      return Response.json({ error: error.message }, { status: 500 })
+      return Response.json({ error: `图片上传失败：${error.message}` }, { status: 500 })
     }
 
     const { data } = supabase.storage.from('post-images').getPublicUrl(filePath)

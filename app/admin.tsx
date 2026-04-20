@@ -7,6 +7,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Pressable,
 } from 'react-native'
 import { MaterialIcons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
@@ -20,6 +21,7 @@ import { Colors } from '@/constants/theme'
 import { useComments } from '@/hooks/useComments'
 import { useNews } from '@/hooks/useNews'
 import { usePosts } from '@/hooks/usePosts'
+import { getApiUrl } from '@/lib/api-base'
 import type { Comment, Post } from '@/lib/types'
 
 type AdminApiError = {
@@ -44,18 +46,26 @@ export default function AdminScreen() {
   const [isUnlocked, setIsUnlocked] = useState(false)
   const [posts, setPosts] = useState<Post[]>([])
   const [comments, setComments] = useState<Comment[]>([])
-  const [isLoadingData, setIsLoadingData] = useState(false)
+  const [isAuthenticating, setIsAuthenticating] = useState(false)
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(false)
+  const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false)
+  const [isMutating, setIsMutating] = useState(false)
   const [isCrawling, setIsCrawling] = useState(false)
+  const [dashboardError, setDashboardError] = useState<string | null>(null)
   const [toast, setToast] = useState<ToastState>({ visible: false, message: '', variant: 'success' })
 
   const { fetchPosts, isLoading: postsLoading } = usePosts()
   const { fetchRecentComments, isLoading: commentsLoading } = useComments()
   const { crawlAndPublish } = useNews()
 
-  const isBusy = postsLoading || commentsLoading || isLoadingData || isCrawling
+  const isBusy = postsLoading || commentsLoading || isAuthenticating || isLoadingDashboard || isRefreshingDashboard || isMutating || isCrawling
 
   const userPosts = useMemo(
     () => posts.filter((post) => post.source_type === 'user'),
+    [posts]
+  )
+  const crawlPosts = useMemo(
+    () => posts.filter((post) => post.source_type === 'crawl'),
     [posts]
   )
 
@@ -72,14 +82,18 @@ export default function AdminScreen() {
     const trimmedPassword = password.trim()
 
     if (!trimmedPassword) {
-      Alert.alert('请输入密码', '管理员入口需要先输入密码')
+      showToast('请输入管理员密码', 'error')
       return
     }
 
-    setIsLoadingData(true)
+    setIsAuthenticating(true)
+    setDashboardError(null)
+    showToast('正在验证管理员密码...')
 
     try {
-      const response = await fetch('/api/admin/posts', {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+      const response = await fetch(getApiUrl('/api/admin/posts'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -87,12 +101,9 @@ export default function AdminScreen() {
         body: JSON.stringify({
           password: trimmedPassword,
         }),
+        signal: controller.signal,
       })
-
-      if (response.status === 401) {
-        Alert.alert('密码错误', '请检查管理员密码后重试')
-        return
-      }
+      clearTimeout(timeoutId)
 
       const rawText = await response.text()
       let result: AdminApiError = {}
@@ -105,23 +116,39 @@ export default function AdminScreen() {
         }
       }
 
+      if (response.status === 401) {
+        showToast(result.error || '管理员密码不对，请重新输入', 'error')
+        return
+      }
+
       if (!response.ok) {
-        Alert.alert('暂时无法进入', result.error || '管理员验证接口异常，请稍后再试')
+        showToast(result.error || '管理员验证接口异常，请稍后再试', 'error')
         return
       }
 
       setIsUnlocked(true)
-      await loadAdminData()
+      showToast('管理员验证成功，正在加载管理数据...')
+      await loadAdminData('initial')
     } catch (error) {
-      const message = error instanceof Error ? error.message : '管理员验证失败，请稍后再试'
-      Alert.alert('暂时无法进入', message)
+      const message =
+        error instanceof Error && error.name === 'AbortError'
+          ? '管理员验证超时，请检查网络或接口地址'
+          : error instanceof Error
+            ? error.message
+            : '管理员验证失败，请稍后再试'
+      showToast(message, 'error')
     } finally {
-      setIsLoadingData(false)
+      setIsAuthenticating(false)
     }
   }
 
-  const loadAdminData = async () => {
-    setIsLoadingData(true)
+  const loadAdminData = async (mode: 'initial' | 'refresh' = 'refresh') => {
+    if (mode === 'initial') {
+      setIsLoadingDashboard(true)
+    } else {
+      setIsRefreshingDashboard(true)
+    }
+    setDashboardError(null)
 
     try {
       const [allPosts, recentComments] = await Promise.all([
@@ -131,8 +158,16 @@ export default function AdminScreen() {
 
       setPosts(allPosts)
       setComments(recentComments)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '管理数据加载失败，请稍后再试'
+      setDashboardError(message)
+      showToast(message, 'error')
     } finally {
-      setIsLoadingData(false)
+      if (mode === 'initial') {
+        setIsLoadingDashboard(false)
+      } else {
+        setIsRefreshingDashboard(false)
+      }
     }
   }
 
@@ -145,10 +180,10 @@ export default function AdminScreen() {
   }, [])
 
   const deletePostDirectly = useCallback(async (post: Post) => {
-    setIsLoadingData(true)
+    setIsMutating(true)
 
     try {
-      const response = await fetch('/api/admin/posts', {
+      const response = await fetch(getApiUrl('/api/admin/posts'), {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -179,14 +214,14 @@ export default function AdminScreen() {
       setPosts((prev) => prev.filter((item) => item.id !== post.id))
       setComments((prev) => prev.filter((item) => item.post_id !== post.id))
       showToast('帖子已删除')
-      await loadAdminData()
+      await loadAdminData('refresh')
     } catch (error) {
       const message = error instanceof Error ? error.message : '帖子删除失败，请稍后再试'
       showToast(message, 'error')
     } finally {
-      setIsLoadingData(false)
+      setIsMutating(false)
     }
-  }, [fetchPosts, fetchRecentComments, password, showToast])
+  }, [loadAdminData, password, showToast])
 
   const handleDeletePost = useCallback((post: Post) => {
     if (isBusy) {
@@ -207,11 +242,11 @@ export default function AdminScreen() {
         text: '删除',
         style: 'destructive',
         onPress: async () => {
-          setIsLoadingData(true)
+          setIsMutating(true)
           showToast(`正在删除评论：${comment.content.slice(0, 12) || comment.id}`, 'success')
 
           try {
-            const response = await fetch('/api/admin/comments', {
+            const response = await fetch(getApiUrl('/api/admin/comments'), {
               method: 'DELETE',
               headers: {
                 'Content-Type': 'application/json',
@@ -254,12 +289,12 @@ export default function AdminScreen() {
                 comments_count: Math.max(post.comments_count - 1, 0),
               }
             }))
-            await loadAdminData()
+            await loadAdminData('refresh')
           } catch (error) {
             const message = error instanceof Error ? error.message : '评论删除失败，请稍后再试'
             showToast(message, 'error')
           } finally {
-            setIsLoadingData(false)
+            setIsMutating(false)
           }
         },
       },
@@ -268,16 +303,20 @@ export default function AdminScreen() {
 
   const handleCrawlNews = async () => {
     setIsCrawling(true)
+    showToast('正在抓取资讯...')
 
     try {
       const insertedCount = await crawlAndPublish('游戏', 10)
       if (insertedCount === 0) {
-        Alert.alert('没有新增资讯', '本次没有新的资讯内容可发布')
+        showToast('本次没有新的资讯内容可发布', 'error')
         return
       }
 
-      await loadAdminData()
-      Alert.alert('抓取成功', `本次新增 ${insertedCount} 条资讯`)
+      await loadAdminData('refresh')
+      showToast(`抓取成功，本次新增 ${insertedCount} 条资讯`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '资讯抓取失败，请稍后再试'
+      showToast(message, 'error')
     } finally {
       setIsCrawling(false)
     }
@@ -286,6 +325,12 @@ export default function AdminScreen() {
   if (!isUnlocked) {
     return (
       <ThemedView style={styles.container}>
+        <Toast
+          visible={toast.visible}
+          message={toast.message}
+          variant={toast.variant}
+          onHide={hideToast}
+        />
         <View style={styles.authCard}>
           <MaterialIcons name="admin-panel-settings" size={56} color={Colors.light.primary} />
           <ThemedText style={styles.title}>管理员入口</ThemedText>
@@ -298,10 +343,20 @@ export default function AdminScreen() {
             placeholderTextColor={Colors.light.textMuted}
             secureTextEntry
           />
-          <TouchableOpacity style={styles.primaryButton} onPress={handleUnlock} activeOpacity={0.8}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.primaryButton,
+              isAuthenticating && styles.buttonDisabled,
+              pressed && !isAuthenticating && styles.pressablePressed,
+            ]}
+            onPress={handleUnlock}
+            disabled={isAuthenticating}
+          >
             <MaterialIcons name="lock-open" size={18} color="#fff" />
-            <ThemedText style={styles.primaryButtonText}>进入管理台</ThemedText>
-          </TouchableOpacity>
+            <ThemedText style={styles.primaryButtonText}>
+              {isAuthenticating ? '验证中...' : '进入管理台'}
+            </ThemedText>
+          </Pressable>
         </View>
       </ThemedView>
     )
@@ -325,12 +380,16 @@ export default function AdminScreen() {
               <View style={styles.actionRow}>
                 <TouchableOpacity
                   style={[styles.primaryButton, isBusy && styles.buttonDisabled]}
-                  onPress={loadAdminData}
+                  onPress={() => {
+                    void loadAdminData('refresh')
+                  }}
                   disabled={isBusy}
                   activeOpacity={0.8}
                 >
                   <MaterialIcons name="refresh" size={18} color="#fff" />
-                  <ThemedText style={styles.primaryButtonText}>刷新数据</ThemedText>
+                  <ThemedText style={styles.primaryButtonText}>
+                    {isRefreshingDashboard ? '刷新中...' : '刷新数据'}
+                  </ThemedText>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.secondaryButton, isBusy && styles.buttonDisabled]}
@@ -346,6 +405,12 @@ export default function AdminScreen() {
 
             <View style={styles.sectionCard}>
               <ThemedText style={styles.sectionTitle}>内容概览</ThemedText>
+              {dashboardError ? (
+                <ThemedText style={styles.dashboardErrorText}>{dashboardError}</ThemedText>
+              ) : null}
+              {isLoadingDashboard ? (
+                <ThemedText style={styles.dashboardLoadingText}>管理员验证已通过，正在加载管理数据...</ThemedText>
+              ) : null}
               <View style={styles.statsRow}>
                 <View style={styles.statItem}>
                   <ThemedText style={styles.statNumber}>{posts.length}</ThemedText>
@@ -354,6 +419,10 @@ export default function AdminScreen() {
                 <View style={styles.statItem}>
                   <ThemedText style={styles.statNumber}>{userPosts.length}</ThemedText>
                   <ThemedText style={styles.statLabel}>用户帖子</ThemedText>
+                </View>
+                <View style={styles.statItem}>
+                  <ThemedText style={styles.statNumber}>{crawlPosts.length}</ThemedText>
+                  <ThemedText style={styles.statLabel}>抓取资讯</ThemedText>
                 </View>
                 <View style={styles.statItem}>
                   <ThemedText style={styles.statNumber}>{comments.length}</ThemedText>
@@ -404,14 +473,65 @@ export default function AdminScreen() {
             </View>
 
             <View style={styles.sectionCard}>
+              <ThemedText style={styles.sectionTitle}>最近抓取资讯</ThemedText>
+              <ThemedText style={styles.sectionHint}>系统抓取的资讯也可以像用户帖子一样直接查看和删除</ThemedText>
+              {crawlPosts.length === 0 ? (
+                <ThemedText style={styles.emptyText}>暂时还没有抓取资讯</ThemedText>
+              ) : (
+                crawlPosts.map((post) => (
+                  <View key={post.id} style={styles.postRow}>
+                    <PostCard
+                      post={post}
+                      variant="compact"
+                      showAuthor={false}
+                      onPress={() => router.push(`/post/${post.id}` as any)}
+                    />
+                    <View style={styles.postActions}>
+                      <TouchableOpacity
+                        style={[styles.viewDetailButton, styles.actionButton]}
+                        onPress={() => router.push(`/post/${post.id}` as any)}
+                        activeOpacity={0.8}
+                        disabled={isBusy}
+                      >
+                        <MaterialIcons name="open-in-new" size={18} color="#fff" />
+                        <ThemedText style={styles.viewDetailButtonText}>查看详情</ThemedText>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.deleteButton, styles.actionButton, isBusy && styles.buttonDisabled]}
+                        onPress={() => handleDeletePost(post)}
+                        activeOpacity={0.8}
+                        disabled={isBusy}
+                      >
+                        <MaterialIcons name={isBusy ? 'hourglass-top' : 'delete-outline'} size={18} color="#fff" />
+                        <ThemedText style={styles.deleteButtonText}>
+                          {isBusy ? '删除中...' : '删除帖子'}
+                        </ThemedText>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))
+              )}
+            </View>
+
+            <View style={styles.sectionCard}>
               <ThemedText style={styles.sectionTitle}>最新评论</ThemedText>
               <ThemedText style={styles.sectionHint}>这里会直接展示全站最近评论，方便上线后快速治理</ThemedText>
             </View>
 
-            {isBusy ? (
+            {isAuthenticating || isLoadingDashboard || isRefreshingDashboard || isMutating || isCrawling ? (
               <View style={styles.loadingRow}>
                 <ActivityIndicator size="small" color={Colors.light.primary} />
-                <ThemedText style={styles.loadingText}>正在同步管理操作，请稍候...</ThemedText>
+                <ThemedText style={styles.loadingText}>
+                  {isAuthenticating
+                    ? '正在验证管理员密码...'
+                    : isLoadingDashboard
+                      ? '正在加载管理数据...'
+                      : isRefreshingDashboard
+                        ? '正在刷新管理数据...'
+                        : isMutating
+                          ? '正在执行管理操作，请稍候...'
+                          : '正在抓取资讯...'}
+                </ThemedText>
               </View>
             ) : null}
           </View>
@@ -554,6 +674,10 @@ const styles = StyleSheet.create({
   buttonDisabled: {
     opacity: 0.6,
   },
+  pressablePressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -665,6 +789,18 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 13,
     color: Colors.light.textMuted,
+  },
+  dashboardLoadingText: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 20,
+    color: Colors.light.textSecondary,
+  },
+  dashboardErrorText: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 20,
+    color: Colors.light.destructive,
   },
   emptyText: {
     marginTop: 12,

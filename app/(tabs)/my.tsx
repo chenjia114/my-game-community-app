@@ -2,7 +2,7 @@
  * 我的页面 - 查看自己发布的帖子
  * 基于 Vibrant & Block-based 暗色游戏风
  */
-import { useState, useEffect, useCallback, memo, useRef } from 'react'
+import { useState, useEffect, useCallback, memo, useMemo } from 'react'
 import {
   StyleSheet,
   View,
@@ -11,12 +11,13 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
-  Platform,
+  Pressable,
 } from 'react-native'
 import { MaterialIcons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 
 import { PostCard } from '@/components/PostCard'
+import { Toast } from '@/components/Toast'
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
 import { Colors } from '@/constants/theme'
@@ -30,14 +31,17 @@ interface ProfileHeaderProps {
   isNicknameLocked: boolean
   editingNickname: string
   visitorLoading: boolean
+  visitorStatusText: string
+  visitorHelpText: string
+  canRetryVisitor: boolean
   isSavingNickname: boolean
   myPosts: Post[]
   hasLoadedPosts: boolean
   showAdminEntry: boolean
   avatarTapCount: number
-  nicknameInputRef: React.RefObject<TextInput | null>
   onChangeNickname: (value: string) => void
   onSaveNickname: () => void
+  onRetryVisitor: () => void
   onPressAdmin: () => void
   onPressAvatar: () => void
 }
@@ -48,21 +52,24 @@ const ProfileHeader = memo(function ProfileHeader({
   isNicknameLocked,
   editingNickname,
   visitorLoading,
+  visitorStatusText,
+  visitorHelpText,
+  canRetryVisitor,
   isSavingNickname,
   myPosts,
   hasLoadedPosts,
   showAdminEntry,
   avatarTapCount,
-  nicknameInputRef,
   onChangeNickname,
   onSaveNickname,
+  onRetryVisitor,
   onPressAdmin,
   onPressAvatar,
 }: ProfileHeaderProps) {
   return (
     <View style={styles.profileSection}>
       {/* 头像 */}
-      <TouchableOpacity style={styles.avatarContainer} activeOpacity={0.9} onPress={onPressAvatar}>
+      <Pressable style={styles.avatarContainer} onPress={onPressAvatar}>
         <View style={styles.avatar} pointerEvents="none">
           <ThemedText style={styles.avatarText}>
             {nickname?.charAt(0).toUpperCase() || '?'}
@@ -74,12 +81,10 @@ const ProfileHeader = memo(function ProfileHeader({
           ) : null}
         </View>
         <View style={styles.avatarRing} pointerEvents="none" />
-      </TouchableOpacity>
+      </Pressable>
 
       {/* 用户名 */}
-      <ThemedText style={styles.nickname}>
-        {nickname || '匿名玩家'}
-      </ThemedText>
+      <ThemedText style={styles.nickname}>{visitorStatusText}</ThemedText>
       <ThemedText style={styles.userId}>
         ID: {visitorId?.slice(0, 8) || '--------'}
       </ThemedText>
@@ -105,7 +110,6 @@ const ProfileHeader = memo(function ProfileHeader({
           </ThemedText>
         </View>
         <TextInput
-          ref={nicknameInputRef}
           style={[styles.nicknameInput, isNicknameLocked && styles.nicknameInputDisabled]}
           value={editingNickname}
           onChangeText={onChangeNickname}
@@ -116,15 +120,30 @@ const ProfileHeader = memo(function ProfileHeader({
           autoCorrect={false}
           autoCapitalize="none"
         />
-        <ThemedText style={styles.nicknameHelpText}>
-          {isNicknameLocked
-            ? '你的昵称已经固定，发帖和评论都会直接使用这个昵称。'
-            : '你现在可以把默认 guest 昵称改成自己的昵称，但只能手动修改这一次。'}
-        </ThemedText>
+        <ThemedText style={styles.nicknameHelpText}>{visitorHelpText}</ThemedText>
+        {canRetryVisitor ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.retryVisitorButton,
+              visitorLoading && styles.saveNicknameButtonDisabled,
+              pressed && !visitorLoading && styles.pressablePressed,
+            ]}
+            onPress={onRetryVisitor}
+            disabled={visitorLoading}
+          >
+            <MaterialIcons name="refresh" size={18} color="#fff" />
+            <ThemedText style={styles.retryVisitorButtonText}>
+              {visitorLoading ? '重试中...' : '重新同步访客信息'}
+            </ThemedText>
+          </Pressable>
+        ) : null}
         {!isNicknameLocked ? (
-          <TouchableOpacity
-            style={[styles.saveNicknameButton, isSavingNickname && styles.saveNicknameButtonDisabled]}
-            activeOpacity={0.8}
+          <Pressable
+            style={({ pressed }) => [
+              styles.saveNicknameButton,
+              (isSavingNickname || visitorLoading) && styles.saveNicknameButtonDisabled,
+              pressed && !(isSavingNickname || visitorLoading) && styles.pressablePressed,
+            ]}
             onPress={onSaveNickname}
             disabled={isSavingNickname || visitorLoading}
           >
@@ -132,7 +151,7 @@ const ProfileHeader = memo(function ProfileHeader({
             <ThemedText style={styles.saveNicknameButtonText}>
               {isSavingNickname ? '保存中...' : '确认并锁定昵称'}
             </ThemedText>
-          </TouchableOpacity>
+          </Pressable>
         ) : null}
       </View>
 
@@ -171,7 +190,7 @@ export default function MyScreen() {
   const [isSavingNickname, setIsSavingNickname] = useState(false)
   const [avatarTapCount, setAvatarTapCount] = useState(0)
   const [showAdminEntry, setShowAdminEntry] = useState(false)
-  const nicknameInputRef = useRef<TextInput>(null)
+  const [toastMessage, setToastMessage] = useState('')
 
   const { fetchPosts } = usePosts()
   const {
@@ -179,8 +198,11 @@ export default function MyScreen() {
     nickname,
     isNicknameLocked,
     isLoading: visitorLoading,
+    status: visitorStatus,
+    error: visitorError,
     setVisitorNickname,
     initVisitor,
+    retryProfileSync,
   } = useVisitor()
 
   // 加载我的帖子
@@ -202,12 +224,22 @@ export default function MyScreen() {
   }, [visitorId, nickname, fetchPosts])
 
   useEffect(() => {
-    initVisitor()
-  }, [initVisitor])
+    if (visitorStatus === 'idle') {
+      void initVisitor()
+    }
+  }, [initVisitor, visitorStatus])
 
   useEffect(() => {
     setEditingNickname(nickname || '')
   }, [nickname])
+
+  useEffect(() => {
+    if (!visitorError) {
+      return
+    }
+
+    setToastMessage(visitorError)
+  }, [visitorError])
 
   useEffect(() => {
     loadMyPosts()
@@ -222,8 +254,18 @@ export default function MyScreen() {
   }, [initVisitor, loadMyPosts])
 
   const handleSaveNickname = useCallback(async () => {
-    if (visitorLoading || !visitorId) {
-      Alert.alert('访客初始化中', '请稍后再试')
+    if (visitorStatus === 'idle' || visitorStatus === 'initializing') {
+      Alert.alert('访客信息仍在加载', '请稍后再试')
+      return
+    }
+
+    if (!visitorId || visitorStatus === 'failed') {
+      Alert.alert('访客初始化失败', '请先重新同步访客信息，再尝试保存昵称')
+      return
+    }
+
+    if (visitorStatus === 'degraded') {
+      Alert.alert('昵称尚未准备好', '请先重新同步访客信息，再尝试保存昵称')
       return
     }
 
@@ -253,11 +295,45 @@ export default function MyScreen() {
     } finally {
       setIsSavingNickname(false)
     }
-  }, [editingNickname, initVisitor, loadMyPosts, nickname, setVisitorNickname, visitorId, visitorLoading])
+  }, [editingNickname, initVisitor, loadMyPosts, nickname, setVisitorNickname, visitorId, visitorStatus])
 
   const handleChangeNickname = useCallback((value: string) => {
     setEditingNickname(value)
   }, [])
+
+  const handleRetryVisitor = useCallback(() => {
+    void retryProfileSync()
+  }, [retryProfileSync])
+
+  const visitorStatusText = useMemo(() => {
+    if (visitorStatus === 'idle' || visitorStatus === 'initializing') {
+      return '正在初始化访客...'
+    }
+
+    if (visitorStatus === 'degraded') {
+      return nickname || '访客信息同步失败'
+    }
+
+    if (visitorStatus === 'failed') {
+      return '访客初始化失败'
+    }
+
+    return nickname || '匿名玩家'
+  }, [nickname, visitorStatus])
+
+  const visitorHelpText = useMemo(() => {
+    if (visitorStatus === 'degraded') {
+      return '当前已拿到访客身份，但昵称同步失败了，请先重新同步访客信息。'
+    }
+
+    if (visitorStatus === 'failed') {
+      return '当前连访客身份都没初始化成功，请先重新同步访客信息。'
+    }
+
+    return isNicknameLocked
+      ? '你的昵称已经固定，发帖和评论都会直接使用这个昵称。'
+      : '你现在可以把默认 guest 昵称改成自己的昵称，但只能手动修改这一次。'
+  }, [isNicknameLocked, visitorStatus])
 
   const handlePressAdmin = useCallback(() => {
     router.push('/admin' as any)
@@ -267,10 +343,6 @@ export default function MyScreen() {
     if (showAdminEntry) {
       handlePressAdmin()
       return
-    }
-
-    if (Platform.OS === 'web') {
-      nicknameInputRef.current?.blur()
     }
 
     setAvatarTapCount((prev) => {
@@ -284,7 +356,7 @@ export default function MyScreen() {
 
       return nextCount
     })
-  }, [handlePressAdmin, nicknameInputRef, showAdminEntry])
+  }, [handlePressAdmin, showAdminEntry])
 
   // 渲染帖子
   const renderPostItem = ({ item }: { item: Post }) => (
@@ -325,33 +397,60 @@ export default function MyScreen() {
     )
   }
 
-  return (
-    <ThemedView style={styles.container}>
+  const renderPostsList = () => {
+    if (!hasLoadedPosts || myPosts.length === 0) {
+      return renderEmpty()
+    }
+
+    return (
       <FlatList
-        keyboardShouldPersistTaps="always"
         data={myPosts}
         renderItem={renderPostItem}
         keyExtractor={(item) => item.id}
-        ListHeaderComponent={
-          <ProfileHeader
-            nickname={nickname}
-            visitorId={visitorId}
-            isNicknameLocked={isNicknameLocked}
-            editingNickname={editingNickname}
-            visitorLoading={visitorLoading}
-            isSavingNickname={isSavingNickname}
-            myPosts={myPosts}
-            hasLoadedPosts={hasLoadedPosts}
-            showAdminEntry={showAdminEntry}
-            avatarTapCount={avatarTapCount}
-            nicknameInputRef={nicknameInputRef}
-            onChangeNickname={handleChangeNickname}
-            onSaveNickname={handleSaveNickname}
-            onPressAdmin={handlePressAdmin}
-            onPressAvatar={handlePressAvatar}
-          />
-        }
-        ListEmptyComponent={renderEmpty}
+        contentContainerStyle={styles.postsListContent}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={false}
+      />
+    )
+  }
+
+  return (
+    <ThemedView style={styles.container}>
+      <Toast
+        visible={Boolean(toastMessage)}
+        message={toastMessage}
+        variant="error"
+        onHide={() => setToastMessage('')}
+      />
+      <FlatList
+        data={[{ key: 'content' }]}
+        keyExtractor={(item) => item.key}
+        renderItem={() => (
+          <View>
+            <ProfileHeader
+              nickname={nickname}
+              visitorId={visitorId}
+              isNicknameLocked={isNicknameLocked}
+              editingNickname={editingNickname}
+              visitorLoading={visitorLoading}
+              visitorStatusText={visitorStatusText}
+              visitorHelpText={visitorHelpText}
+              canRetryVisitor={visitorStatus === 'degraded' || visitorStatus === 'failed'}
+              isSavingNickname={isSavingNickname}
+              myPosts={myPosts}
+              hasLoadedPosts={hasLoadedPosts}
+              showAdminEntry={showAdminEntry}
+              avatarTapCount={avatarTapCount}
+              onChangeNickname={handleChangeNickname}
+              onSaveNickname={handleSaveNickname}
+              onRetryVisitor={handleRetryVisitor}
+              onPressAdmin={handlePressAdmin}
+              onPressAvatar={handlePressAvatar}
+            />
+            {renderPostsList()}
+          </View>
+        )}
+        keyboardShouldPersistTaps="always"
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -376,6 +475,9 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 24,
   },
+  postsListContent: {
+    paddingBottom: 24,
+  },
   profileSection: {
     alignItems: 'center',
     paddingVertical: 32,
@@ -383,11 +485,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.light.border,
     marginBottom: 16,
-    ...(Platform.OS === 'web'
-      ? {
-          userSelect: 'text',
-        }
-      : null),
   },
   avatarContainer: {
     position: 'relative',
@@ -511,7 +608,25 @@ const styles = StyleSheet.create({
   saveNicknameButtonDisabled: {
     opacity: 0.6,
   },
+  pressablePressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
   saveNicknameButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  retryVisitorButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.light.accent,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryVisitorButtonText: {
     fontSize: 14,
     fontWeight: '700',
     color: '#fff',

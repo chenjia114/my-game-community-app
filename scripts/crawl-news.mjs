@@ -9,6 +9,16 @@ const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
 const tavilyApiKey = process.env.TAVILY_API_KEY || process.env.EXPO_PUBLIC_TAVILY_API_KEY
 const crawlKeyword = process.env.CRAWL_NEWS_KEYWORD || '游戏'
 const crawlLimit = Number(process.env.CRAWL_NEWS_LIMIT || '10')
+const defaultChineseNewsDomains = [
+  '3dmgame.com',
+  'gamersky.com',
+  'ali213.net',
+  '17173.com',
+  'a9vg.com',
+  'gcores.com',
+  'tgbus.com',
+  'duowan.com',
+]
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('缺少 Supabase 环境变量')
@@ -71,6 +81,19 @@ async function incrementTavilyDailyUsage() {
   }
 }
 
+function extractDomain(url) {
+  try {
+    return new URL(url).hostname.replace('www.', '')
+  } catch {
+    return url
+  }
+}
+
+function isAllowedChineseNewsDomain(url) {
+  const domain = extractDomain(url)
+  return defaultChineseNewsDomains.some((allowedDomain) => domain === allowedDomain || domain.endsWith(`.${allowedDomain}`))
+}
+
 async function fetchNews() {
   const response = await fetch('https://api.tavily.com/search', {
     method: 'POST',
@@ -79,12 +102,13 @@ async function fetchNews() {
     },
     body: JSON.stringify({
       api_key: tavilyApiKey,
-      query: `gaming ${crawlKeyword}`,
+      query: `中国大陆 游戏资讯 ${crawlKeyword}`,
       max_results: crawlLimit,
       topic: 'news',
       time_range: 'week',
       include_images: true,
       include_answer: false,
+      include_domains: defaultChineseNewsDomains,
     }),
   })
 
@@ -103,13 +127,14 @@ async function run() {
   const payload = await fetchNews()
   const results = Array.isArray(payload.results) ? payload.results : []
   const images = Array.isArray(payload.images) ? payload.images : []
+  const filteredResults = results.filter((item) => isAllowedChineseNewsDomain(item.url))
 
-  if (results.length === 0) {
-    console.log('未抓到资讯')
+  if (filteredResults.length === 0) {
+    console.log('未抓到符合中文站点白名单的资讯')
     return
   }
 
-  const mappedPosts = results.map((item, index) => ({
+  const mappedPosts = filteredResults.map((item, index) => ({
     title: item.title,
     content: item.content,
     author_name: '系统资讯',

@@ -48,7 +48,7 @@ export default function HomeScreen() {
 
   const { fetchCrawledPosts } = useNews()
   const { fetchPosts, posts } = usePosts()
-  const { initVisitor } = useVisitor()
+  const { status, initVisitor } = useVisitor()
   const [topNewsPosts, setTopNewsPosts] = useState<Post[]>([])
   const [feedNewsPosts, setFeedNewsPosts] = useState<Post[]>([])
 
@@ -66,8 +66,10 @@ export default function HomeScreen() {
   }, [fetchCrawledPosts, fetchPosts])
 
   useEffect(() => {
-    initVisitor()
-  }, [initVisitor])
+    if (status === 'idle') {
+      void initVisitor()
+    }
+  }, [initVisitor, status])
 
   useFocusEffect(
     useCallback(() => {

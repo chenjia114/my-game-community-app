@@ -3,7 +3,10 @@
  * Web 环境用相对路径，Expo 原生环境用完整 URL
  */
 
-const IS_WEB = typeof window !== 'undefined'
+import { Platform } from 'react-native'
+
+const IS_WEB = Platform.OS === 'web'
+const DEFAULT_NATIVE_API_BASE_URL = 'https://my-app-two-steel-75.vercel.app'
 
 /**
  * 获取 API 基础地址
@@ -15,8 +18,13 @@ export function getApiBaseUrl(): string {
     return ''
   }
 
-  // Expo 原生环境使用配置的 API 地址
-  return process.env.EXPO_PUBLIC_API_BASE_URL || ''
+  const configuredBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || ''
+  if (configuredBaseUrl) {
+    return configuredBaseUrl
+  }
+
+  console.warn('EXPO_PUBLIC_API_BASE_URL 未注入，已回退到默认线上地址')
+  return DEFAULT_NATIVE_API_BASE_URL
 }
 
 /**

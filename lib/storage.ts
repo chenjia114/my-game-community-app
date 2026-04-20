@@ -1,8 +1,36 @@
+import { Platform } from 'react-native'
+import { getApiUrl } from '@/lib/api-base'
+
 type UploadImageSource = string | File
 
-async function normalizeImageFile(source: UploadImageSource): Promise<File> {
+type NativeUploadFile = {
+  uri: string
+  name: string
+  type: string
+}
+
+function createNativeUploadFile(source: string): NativeUploadFile {
+  const normalizedUri = source.startsWith('file://') || source.startsWith('content://') ? source : `file://${source}`
+  const extensionMatch = normalizedUri.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)
+  const extension = extensionMatch?.[1]?.toLowerCase() || 'jpg'
+  const mimeType = extension === 'png' ? 'image/png' : extension === 'webp' ? 'image/webp' : 'image/jpeg'
+
+  return {
+    uri: normalizedUri,
+    name: `post-image.${extension}`,
+    type: mimeType,
+  }
+}
+
+async function appendUploadFile(formData: FormData, source: UploadImageSource) {
+  if (Platform.OS !== 'web' && typeof source === 'string') {
+    formData.append('file', createNativeUploadFile(source) as unknown as Blob)
+    return
+  }
+
   if (typeof source !== 'string') {
-    return source
+    formData.append('file', source)
+    return
   }
 
   const response = await fetch(source)
@@ -12,9 +40,9 @@ async function normalizeImageFile(source: UploadImageSource): Promise<File> {
   }
 
   const blob = await response.blob()
-  return new File([blob], 'post-image.jpg', {
+  formData.append('file', new File([blob], 'post-image.jpg', {
     type: blob.type || 'image/jpeg',
-  })
+  }))
 }
 
 /**
@@ -22,12 +50,11 @@ async function normalizeImageFile(source: UploadImageSource): Promise<File> {
  * 返回可直接写入 posts.image_url 的公开地址
  */
 export async function uploadPostImage(source: UploadImageSource, visitorId: string): Promise<string> {
-  const file = await normalizeImageFile(source)
   const formData = new FormData()
   formData.append('visitorId', visitorId)
-  formData.append('file', file)
+  await appendUploadFile(formData, source)
 
-  const response = await fetch('/api/post-image', {
+  const response = await fetch(getApiUrl('/api/post-image'), {
     method: 'POST',
     body: formData,
   })

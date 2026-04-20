@@ -14,6 +14,7 @@ import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
 import { Colors } from '@/constants/theme'
 import { usePosts } from '@/hooks/usePosts'
+import { extractDomain } from '@/lib/tavily'
 import type { Post } from '@/lib/types'
 
 /**
@@ -33,12 +34,7 @@ export default function NewsDetail() {
 
   const sourceDomain = useMemo(() => {
     if (!newsPost?.source_url) return ''
-
-    try {
-      return new URL(newsPost.source_url).hostname.replace('www.', '')
-    } catch {
-      return newsPost.source_url
-    }
+    return extractDomain(newsPost.source_url)
   }, [newsPost?.source_url])
 
   if (isLoading) {

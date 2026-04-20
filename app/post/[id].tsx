@@ -33,7 +33,7 @@ export default function PostDetail() {
   const { fetchPost } = usePosts()
   const { comments, fetchComments, createComment, isLoading: commentsLoading } = useComments()
   const { toggleLike, checkIsLiked, error: likeError } = useLikes()
-  const { visitorId, nickname, isLoading: visitorLoading } = useVisitor()
+  const { visitorId, nickname, status: visitorStatus, initVisitor } = useVisitor()
 
   const postId = useMemo(() => {
     if (!id) return ''
@@ -113,6 +113,12 @@ export default function PostDetail() {
   }, [fetchComments, postId])
 
   useEffect(() => {
+    if (visitorStatus === 'idle') {
+      void initVisitor()
+    }
+  }, [initVisitor, visitorStatus])
+
+  useEffect(() => {
     if (!post || !visitorId) {
       setIsLiked(false)
       return
@@ -147,6 +153,14 @@ export default function PostDetail() {
   }, [comments])
 
   const commentsCount = normalizedComments.length
+  const commentIdentityText =
+    visitorStatus === 'idle' || visitorStatus === 'initializing'
+      ? '正在准备昵称...'
+      : visitorStatus === 'degraded'
+        ? '昵称同步失败，请先去“我的”页面重试'
+        : visitorStatus === 'failed'
+          ? '访客身份初始化失败，请先重试'
+          : nickname || '请先去“我的”页面设置昵称'
 
   const handleSubmitComment = async () => {
     if (!post) return
@@ -154,12 +168,17 @@ export default function PostDetail() {
     const trimmedNickname = nickname?.trim() || ''
     const trimmedContent = commentContent.trim()
 
-    if (visitorLoading || !visitorId) {
-      Alert.alert('访客初始化中', '请稍后再试')
+    if (visitorStatus === 'idle' || visitorStatus === 'initializing') {
+      Alert.alert('访客信息仍在加载', '请稍后再试')
       return
     }
 
-    if (!trimmedNickname) {
+    if (!visitorId || visitorStatus === 'failed') {
+      Alert.alert('访客初始化失败', '请先去“我的”页面重新同步访客信息')
+      return
+    }
+
+    if (visitorStatus === 'degraded' || !trimmedNickname) {
       Alert.alert('昵称未准备好', '请先到“我的”页面确认昵称后再评论')
       return
     }
@@ -200,8 +219,13 @@ export default function PostDetail() {
   const handleToggleLike = async () => {
     if (!post) return
 
-    if (visitorLoading || !visitorId) {
-      Alert.alert('访客初始化中', '请稍后再试')
+    if (visitorStatus === 'idle' || visitorStatus === 'initializing') {
+      Alert.alert('访客信息仍在加载', '请稍后再试')
+      return
+    }
+
+    if (!visitorId || visitorStatus === 'failed') {
+      Alert.alert('访客初始化失败', '请先去“我的”页面重新同步访客信息')
       return
     }
 
@@ -322,7 +346,7 @@ export default function PostDetail() {
 
           <View style={styles.sectionHeader}>
             <ThemedText style={styles.sectionTitle}>发表评论</ThemedText>
-            <ThemedText style={styles.sectionHint}>当前身份：{nickname || '正在准备昵称...'}</ThemedText>
+            <ThemedText style={styles.sectionHint}>当前身份：{commentIdentityText}</ThemedText>
           </View>
 
           <View style={styles.inputCard}>

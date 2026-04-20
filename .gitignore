@@ -67,3 +67,5 @@ skills/
 
 # 文档（按需启用）
 # docs/
+
+.vercel

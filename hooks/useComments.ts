@@ -20,7 +20,7 @@ export function useComments() {
     setError(null)
 
     try {
-      const response = await fetch(`/api/comments?postId=${encodeURIComponent(postId)}`)
+      const response = await fetch(getApiUrl(`/api/comments?postId=${encodeURIComponent(postId)}`))
       const result = (await response.json().catch(() => null)) as {
         comments?: Comment[]
         error?: string
@@ -35,7 +35,7 @@ export function useComments() {
       return commentsData
     } catch (err: any) {
       setError(err.message)
-      return []
+      throw err
     } finally {
       setIsLoading(false)
     }
@@ -56,7 +56,7 @@ export function useComments() {
       }
 
       const queryString = params.toString()
-      const response = await fetch(`/api/comments${queryString ? `?${queryString}` : ''}`)
+      const response = await fetch(getApiUrl(`/api/comments${queryString ? `?${queryString}` : ''}`))
       const result = (await response.json().catch(() => null)) as {
         comments?: Comment[]
         error?: string
@@ -71,7 +71,7 @@ export function useComments() {
       return commentsData
     } catch (err: any) {
       setError(err.message)
-      return []
+      throw err
     } finally {
       setIsLoading(false)
     }
@@ -155,7 +155,7 @@ export function useComments() {
   // 获取评论数量
   const getCommentCount = useCallback(async function getCommentCount(postId: string): Promise<number> {
     try {
-      const response = await fetch(`/api/comments?postId=${encodeURIComponent(postId)}`)
+      const response = await fetch(getApiUrl(`/api/comments?postId=${encodeURIComponent(postId)}`))
       const result = (await response.json().catch(() => null)) as {
         comments?: Comment[]
         error?: string

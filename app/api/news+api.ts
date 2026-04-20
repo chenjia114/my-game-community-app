@@ -5,7 +5,12 @@
 import { getSupabaseAdminClient } from '@/lib/supabase-admin'
 import type { Post, TavilySearchResponse } from '@/lib/types'
 import { assertTavilyDailyLimit, incrementTavilyDailyUsage } from '@/lib/tavily-usage'
-import { normalizeTavilyResponse, type SearchOptions } from '@/lib/tavily'
+import {
+  DEFAULT_CHINESE_NEWS_DOMAINS,
+  isAllowedChineseNewsDomain,
+  normalizeTavilyResponse,
+  type SearchOptions,
+} from '@/lib/tavily'
 
 const TAVILY_API_URL = 'https://api.tavily.com/search'
 
@@ -14,16 +19,25 @@ function getTavilyApiKey(): string {
 }
 
 function buildTavilyPayload(options: SearchOptions, apiKey: string) {
-  const { query, maxResults = 10, topic = 'news', timeRange = 'week' } = options
+  const {
+    query,
+    maxResults = 10,
+    topic = 'news',
+    timeRange = 'week',
+    includeDomains = [...DEFAULT_CHINESE_NEWS_DOMAINS],
+    excludeDomains = [],
+  } = options
 
   return {
     api_key: apiKey,
-    query: `gaming ${query}`,
+    query: `中国大陆 游戏资讯 ${query}`,
     max_results: maxResults,
     topic,
     time_range: timeRange,
     include_images: true,
     include_answer: false,
+    include_domains: includeDomains,
+    exclude_domains: excludeDomains,
   }
 }
 
@@ -65,10 +79,22 @@ export async function POST(request: Request) {
       )
     }
 
+    const includeDomains = body.includeDomains?.length
+      ? body.includeDomains
+      : [...DEFAULT_CHINESE_NEWS_DOMAINS]
+    const filteredResults = (data.results || []).filter((item) =>
+      isAllowedChineseNewsDomain(item.url, includeDomains)
+    )
+    const filteredData = {
+      ...data,
+      results: filteredResults,
+      images: Array.isArray(data.images) ? data.images.slice(0, filteredResults.length) : data.images,
+    }
+
     const updatedUsage = await incrementTavilyDailyUsage()
 
     return Response.json({
-      ...normalizeTavilyResponse(data),
+      ...normalizeTavilyResponse(filteredData),
       usage: {
         ...usage,
         requestCount: updatedUsage.requestCount,

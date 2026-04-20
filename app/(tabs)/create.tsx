@@ -43,19 +43,66 @@ declare global {
 type ToastState = {
   visible: boolean
   message: string
+  variant?: 'success' | 'error'
+}
+
+const webImagePickerLabelStyle = {
+  display: 'block',
+  width: '100%',
+  cursor: 'pointer',
+} satisfies React.CSSProperties
+
+const webImagePickerInputStyle = {
+  display: 'none',
+} satisfies React.CSSProperties
+
+function WebImagePicker({ onSelect }: { onSelect: (file: File) => void }) {
+  if (Platform.OS !== 'web') {
+    return null
+  }
+
+  return (
+    <label style={webImagePickerLabelStyle}>
+      <input
+        type="file"
+        accept="image/*"
+        style={webImagePickerInputStyle}
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0]
+          if (!file) {
+            return
+          }
+
+          onSelect(file)
+          event.currentTarget.value = ''
+        }}
+      />
+      <View style={styles.imagePicker} pointerEvents="none">
+        <MaterialIcons name="add-photo-alternate" size={48} color={Colors.light.textMuted} />
+        <ThemedText style={styles.imagePickerText}>点击上传封面图</ThemedText>
+        <ThemedText style={styles.imagePickerHint}>推荐 16:9 比例的图片</ThemedText>
+      </View>
+    </label>
+  )
 }
 
 export default function CreateScreen() {
   const router = useRouter()
   const { createPost } = usePosts()
-  const { visitorId, nickname, isLoading: visitorLoading } = useVisitor()
+  const {
+    visitorId,
+    nickname,
+    status: visitorStatus,
+    error: visitorError,
+    initVisitor,
+  } = useVisitor()
 
   // 表单状态
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [toast, setToast] = useState<ToastState>({ visible: false, message: '' })
+  const [toast, setToast] = useState<ToastState>({ visible: false, message: '', variant: 'success' })
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') {
@@ -73,6 +120,18 @@ export default function CreateScreen() {
   }, [])
 
   useEffect(() => {
+    if (visitorStatus === 'idle') {
+      void initVisitor()
+    }
+  }, [initVisitor, visitorStatus])
+
+  useEffect(() => {
+    if (visitorError) {
+      setToast({ visible: true, message: visitorError, variant: 'error' })
+    }
+  }, [visitorError])
+
+  useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') {
       return
     }
@@ -88,26 +147,14 @@ export default function CreateScreen() {
   }, [content, isSubmitting, nickname, selectedImage, title, visitorId])
 
   // 选择图片
+  const handleSelectWebImage = useCallback((file: File) => {
+    setSelectedImage({
+      previewUrl: URL.createObjectURL(file),
+      uploadSource: file,
+    })
+  }, [])
+
   const pickImage = useCallback(async () => {
-    if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      const input = document.createElement('input')
-      input.type = 'file'
-      input.accept = 'image/*'
-      input.onchange = () => {
-        const file = input.files?.[0]
-        if (!file) {
-          return
-        }
-
-        setSelectedImage({
-          previewUrl: URL.createObjectURL(file),
-          uploadSource: file,
-        })
-      }
-      input.click()
-      return
-    }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -133,13 +180,30 @@ export default function CreateScreen() {
     }
   }, [])
 
+  const identityStatusText =
+    visitorStatus === 'idle' || visitorStatus === 'initializing'
+      ? '正在准备昵称...'
+      : visitorStatus === 'degraded'
+        ? '昵称同步失败，请先去“我的”页面重试'
+        : visitorStatus === 'failed'
+          ? '访客身份初始化失败，请先重试'
+          : nickname || '请先去“我的”页面设置昵称'
+
   // 提交帖子
   const handleSubmit = useCallback(async () => {
     const trimmedNickname = nickname?.trim() || ''
 
     // 验证
-    if (visitorLoading || !visitorId) {
-      Alert.alert('访客初始化中', '请稍后再试')
+    if (visitorStatus === 'idle' || visitorStatus === 'initializing') {
+      Alert.alert('访客信息仍在加载', '请稍后再试')
+      return
+    }
+    if (!visitorId || visitorStatus === 'failed') {
+      Alert.alert('访客初始化失败', '请先去“我的”页面重新同步访客信息')
+      return
+    }
+    if (visitorStatus === 'degraded') {
+      Alert.alert('昵称未准备好', '当前昵称同步失败，请先去“我的”页面重试')
       return
     }
     if (!trimmedNickname) {
@@ -164,6 +228,7 @@ export default function CreateScreen() {
     }
 
     setIsSubmitting(true)
+    setToast({ visible: true, message: '正在发布帖子...', variant: 'success' })
 
     try {
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -177,7 +242,14 @@ export default function CreateScreen() {
       }
 
       // 先上传图片，再创建帖子
-      const uploadedImageUrl = await uploadPostImage(selectedImage.uploadSource, visitorId)
+      const uploadedImageUrl = await Promise.race([
+        uploadPostImage(selectedImage.uploadSource, visitorId),
+        new Promise<string>((_, reject) => {
+          setTimeout(() => reject(new Error('图片上传超时，请稍后重试')), 20000)
+        }),
+      ])
+
+      setToast({ visible: true, message: '图片上传成功，正在保存帖子...', variant: 'success' })
 
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         ;(window as any).__createDebugState = {
@@ -205,6 +277,7 @@ export default function CreateScreen() {
         setToast({
           visible: true,
           message: '发帖成功，正在返回首页',
+          variant: 'success',
         })
 
         setTimeout(() => {
@@ -212,7 +285,7 @@ export default function CreateScreen() {
         }, 450)
         return
       } else {
-        Alert.alert('发布失败', '帖子保存失败，请稍后重试')
+        setToast({ visible: true, message: '帖子保存失败，请稍后重试', variant: 'error' })
       }
     } catch (error) {
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -227,11 +300,11 @@ export default function CreateScreen() {
       }
 
       const message = error instanceof Error ? error.message : '图片上传或帖子保存失败，请稍后重试'
-      Alert.alert('发布失败', message)
+      setToast({ visible: true, message, variant: 'error' })
     } finally {
       setIsSubmitting(false)
     }
-  }, [content, createPost, nickname, router, selectedImage, title, visitorId, visitorLoading])
+  }, [content, createPost, nickname, router, selectedImage, title, visitorId, visitorStatus])
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') {
@@ -253,7 +326,8 @@ export default function CreateScreen() {
       <Toast
         visible={toast.visible}
         message={toast.message}
-        onHide={() => setToast({ visible: false, message: '' })}
+        variant={toast.variant}
+        onHide={() => setToast({ visible: false, message: '', variant: 'success' })}
       />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -266,7 +340,7 @@ export default function CreateScreen() {
         >
           <View style={styles.identityCard}>
             <ThemedText style={styles.identityLabel}>当前发布身份</ThemedText>
-            <ThemedText style={styles.identityValue}>{nickname || '正在准备昵称...'}</ThemedText>
+            <ThemedText style={styles.identityValue}>{identityStatusText}</ThemedText>
             <ThemedText style={styles.identityHint}>昵称请到“我的”页面设置，这里只负责发帖</ThemedText>
           </View>
 
@@ -325,36 +399,42 @@ export default function CreateScreen() {
                   <MaterialIcons name="close" size={20} color="#fff" />
                 </TouchableOpacity>
               </View>
+            ) : Platform.OS === 'web' ? (
+              <WebImagePicker onSelect={handleSelectWebImage} />
             ) : (
-              <Pressable
-                style={({ pressed }) => [styles.imagePicker, pressed && styles.imagePickerPressed]}
+              <TouchableOpacity
+                style={styles.imagePicker}
                 onPress={() => {
                   void pickImage()
                 }}
+                activeOpacity={0.7}
                 testID="create-image-picker"
               >
                 <MaterialIcons name="add-photo-alternate" size={48} color={Colors.light.textMuted} />
                 <ThemedText style={styles.imagePickerText}>点击上传封面图</ThemedText>
                 <ThemedText style={styles.imagePickerHint}>推荐 16:9 比例的图片</ThemedText>
-              </Pressable>
+              </TouchableOpacity>
             )}
           </View>
         </ScrollView>
 
         {/* 发布按钮 */}
         <View style={styles.footer}>
-          <TouchableOpacity
-            style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
+          <Pressable
+            style={({ pressed }) => [
+              styles.submitButton,
+              isSubmitting && styles.submitButtonDisabled,
+              pressed && !isSubmitting && styles.pressablePressed,
+            ]}
             onPress={handleSubmit}
             disabled={isSubmitting}
-            activeOpacity={0.8}
             testID="create-submit-button"
           >
             <MaterialIcons name="send" size={20} color="#fff" />
             <ThemedText style={styles.submitButtonText}>
               {isSubmitting ? '发布中...' : '发布帖子'}
             </ThemedText>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </KeyboardAvoidingView>
     </ThemedView>
@@ -449,7 +529,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.light.border,
     borderStyle: 'dashed',
-    cursor: 'pointer',
   },
   imagePickerPressed: {
     opacity: 0.8,
@@ -507,6 +586,10 @@ const styles = StyleSheet.create({
   },
   submitButtonDisabled: {
     opacity: 0.6,
+  },
+  pressablePressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
   },
   submitButtonText: {
     fontSize: 17,

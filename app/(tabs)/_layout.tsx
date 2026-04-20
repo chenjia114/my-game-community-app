@@ -19,6 +19,7 @@ export default function TabLayout() {
         tabBarStyle: styles.tabBar,
         tabBarLabelStyle: styles.tabBarLabel,
         tabBarItemStyle: styles.tabBarItem,
+        tabBarIconStyle: styles.tabBarIcon,
         tabBarHideOnKeyboard: false,
       }}
     >
@@ -29,7 +30,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="home" size={size} color={color} />
           ),
-          headerTitle: '游戏社区',
+          headerTitle: '虫友青春版',
           headerStyle: styles.header,
           headerTitleStyle: styles.headerTitle,
         }}
@@ -69,17 +70,22 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.tabBarBackground,
     borderTopWidth: 1,
     borderTopColor: Colors.light.tabBarBorder,
-    paddingTop: 8,
-    paddingBottom: 8,
-    height: 72,
+    paddingTop: 10,
+    paddingBottom: 10,
+    height: 88,
   },
   tabBarLabel: {
     fontSize: 11,
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: 4,
+    marginBottom: 2,
   },
   tabBarItem: {
     paddingVertical: 4,
+    justifyContent: 'center',
+  },
+  tabBarIcon: {
+    marginTop: 2,
   },
   header: {
     backgroundColor: Colors.light.background,
@@ -96,12 +102,11 @@ const styles = StyleSheet.create({
   },
   createButton: {
     width: 48,
-    height: 32,
+    height: 48,
     backgroundColor: Colors.light.accent,
-    borderRadius: 16,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
     boxShadow: '0px 4px 8px rgba(244, 63, 94, 0.4)',
     elevation: 4,
   },

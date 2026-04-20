@@ -79,7 +79,7 @@ export function useLikes() {
   ): Promise<boolean> {
     try {
       const params = new URLSearchParams({ postId, visitorId })
-      const response = await fetch(`/api/likes?${params.toString()}`)
+      const response = await fetch(getApiUrl(`/api/likes?${params.toString()}`))
       const result = (await response.json().catch(() => null)) as {
         liked?: boolean
         error?: string
@@ -111,7 +111,7 @@ export function useLikes() {
     visitorId: string
   ): Promise<Set<string>> {
     try {
-      const response = await fetch(`/api/likes?visitorId=${encodeURIComponent(visitorId)}`)
+      const response = await fetch(getApiUrl(`/api/likes?visitorId=${encodeURIComponent(visitorId)}`))
       const result = (await response.json().catch(() => null)) as {
         likes?: Array<{ post_id?: string }>
         error?: string

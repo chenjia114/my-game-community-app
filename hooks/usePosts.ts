@@ -49,7 +49,7 @@ export function usePosts() {
       return postsData
     } catch (err: any) {
       setError(err.message)
-      return []
+      throw err
     } finally {
       setIsLoading(false)
     }

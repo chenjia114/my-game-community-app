@@ -12,7 +12,9 @@ import {
   type SearchOptions,
 } from '@/lib/tavily'
 
-const TAVILY_API_URL = 'https://api.tavily.com/search'
+const TAVILY_SEARCH_API_URL = 'https://api.tavily.com/search'
+const TAVILY_EXTRACT_API_URL = 'https://api.tavily.com/extract'
+const MAX_EXTRACT_URLS_PER_REQUEST = 19
 
 function getTavilyApiKey(): string {
   return process.env.TAVILY_API_KEY || ''
@@ -41,6 +43,52 @@ function buildTavilyPayload(options: SearchOptions, apiKey: string) {
   }
 }
 
+async function runTavilyRequest(url: string, body: Record<string, unknown>) {
+  await assertTavilyDailyLimit()
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const errorMessage = data?.detail?.error || data?.error || `Tavily 请求失败：${response.status}`
+    return {
+      ok: false as const,
+      status: response.status,
+      errorMessage,
+      data,
+    }
+  }
+
+  await incrementTavilyDailyUsage()
+
+  return {
+    ok: true as const,
+    status: response.status,
+    data,
+  }
+}
+
+function pickArticleImage(images: unknown): string | undefined {
+  if (!Array.isArray(images)) {
+    return undefined
+  }
+
+  for (const image of images) {
+    if (typeof image === 'string' && image.trim()) {
+      return image
+    }
+  }
+
+  return undefined
+}
+
 export async function POST(request: Request) {
   const apiKey = getTavilyApiKey()
 
@@ -56,29 +104,13 @@ export async function POST(request: Request) {
     }
 
     const usage = await assertTavilyDailyLimit()
+    const tavilyResponse = await runTavilyRequest(TAVILY_SEARCH_API_URL, buildTavilyPayload(body, apiKey))
 
-    const response = await fetch(TAVILY_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(buildTavilyPayload(body, apiKey)),
-    })
-
-    const data = (await response.json()) as TavilySearchResponse & {
-      detail?: { error?: string }
-      error?: string
+    if (!tavilyResponse.ok) {
+      return Response.json({ error: tavilyResponse.errorMessage }, { status: tavilyResponse.status })
     }
 
-    if (!response.ok) {
-      return Response.json(
-        {
-          error: data.detail?.error || data.error || `Tavily 请求失败：${response.status}`,
-        },
-        { status: response.status }
-      )
-    }
-
+    const data = tavilyResponse.data as TavilySearchResponse
     const includeDomains = body.includeDomains?.length
       ? body.includeDomains
       : [...DEFAULT_CHINESE_NEWS_DOMAINS]
@@ -91,14 +123,12 @@ export async function POST(request: Request) {
       images: Array.isArray(data.images) ? data.images.slice(0, filteredResults.length) : data.images,
     }
 
-    const updatedUsage = await incrementTavilyDailyUsage()
-
     return Response.json({
       ...normalizeTavilyResponse(filteredData),
       usage: {
         ...usage,
-        requestCount: updatedUsage.requestCount,
-        remainingCount: updatedUsage.remainingCount,
+        requestCount: usage.requestCount + 1,
+        remainingCount: Math.max(usage.remainingCount - 1, 0),
       },
     })
   } catch (error) {
@@ -115,6 +145,75 @@ export async function POST(request: Request) {
     }
 
     return Response.json({ error: '新闻接口内部错误' }, { status: 500 })
+  }
+}
+
+export async function PATCH(request: Request) {
+  const apiKey = getTavilyApiKey()
+
+  if (!apiKey) {
+    return Response.json({ error: '服务端未配置 Tavily API Key' }, { status: 500 })
+  }
+
+  try {
+    const body = (await request.json()) as {
+      urls?: string[]
+    }
+
+    const urls = Array.isArray(body.urls)
+      ? body.urls.map((url) => url.trim()).filter(Boolean)
+      : []
+
+    if (urls.length === 0) {
+      return Response.json({ error: 'urls 不能为空' }, { status: 400 })
+    }
+
+    const safeUrls = urls.slice(0, MAX_EXTRACT_URLS_PER_REQUEST)
+    const items: Array<{ url: string; imageUrl?: string }> = []
+
+    for (const url of safeUrls) {
+      const tavilyResponse = await runTavilyRequest(TAVILY_EXTRACT_API_URL, {
+        api_key: apiKey,
+        urls: [url],
+        include_images: true,
+      })
+
+      if (!tavilyResponse.ok) {
+        if (tavilyResponse.status === 429 || tavilyResponse.status === 432 || tavilyResponse.status === 433) {
+          return Response.json({ error: tavilyResponse.errorMessage }, { status: tavilyResponse.status })
+        }
+
+        items.push({ url })
+        continue
+      }
+
+      const data = tavilyResponse.data as {
+        results?: Array<{ url?: string; images?: string[] }>
+      }
+      const firstResult = Array.isArray(data.results) ? data.results[0] : null
+      items.push({
+        url,
+        imageUrl: pickArticleImage(firstResult?.images),
+      })
+    }
+
+    return Response.json({ items })
+  } catch (error) {
+    console.error('资讯图片提取失败:', error)
+
+    if (error instanceof Error) {
+      if (error.message === '今日资讯额度已用完，请明天再试') {
+        return Response.json({ error: error.message }, { status: 429 })
+      }
+
+      if (error.message.includes("public.tavily_daily_usage")) {
+        return Response.json({ error: '请先在 Supabase 执行最新 schema，初始化 Tavily 每日额度表' }, { status: 500 })
+      }
+
+      return Response.json({ error: error.message }, { status: 500 })
+    }
+
+    return Response.json({ error: '资讯图片提取失败' }, { status: 500 })
   }
 }
 

@@ -3,6 +3,9 @@ import { createClient } from '@supabase/supabase-js'
 
 const TAVILY_DAILY_LIMIT = 20
 const TAVILY_DAILY_USAGE_TABLE = 'tavily_daily_usage'
+const TAVILY_SEARCH_API_URL = 'https://api.tavily.com/search'
+const TAVILY_EXTRACT_API_URL = 'https://api.tavily.com/extract'
+const MAX_EXTRACT_URLS_PER_RUN = 19
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
@@ -94,39 +97,70 @@ function isAllowedChineseNewsDomain(url) {
   return defaultChineseNewsDomains.some((allowedDomain) => domain === allowedDomain || domain.endsWith(`.${allowedDomain}`))
 }
 
-async function fetchNews() {
-  const response = await fetch('https://api.tavily.com/search', {
+async function runTavilyRequest(url, body) {
+  await assertTavilyDailyLimit()
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      api_key: tavilyApiKey,
-      query: `中国大陆 游戏资讯 ${crawlKeyword}`,
-      max_results: crawlLimit,
-      topic: 'news',
-      time_range: 'week',
-      include_images: true,
-      include_answer: false,
-      include_domains: defaultChineseNewsDomains,
-    }),
+    body: JSON.stringify(body),
   })
 
+  const data = await response.json().catch(() => null)
+
   if (!response.ok) {
-    throw new Error(`Tavily 请求失败: ${response.status}`)
+    const errorMessage = data?.detail?.error || data?.error || `Tavily 请求失败: ${response.status}`
+    throw new Error(errorMessage)
   }
 
   await incrementTavilyDailyUsage()
 
-  return response.json()
+  return data
+}
+
+function pickArticleImage(images) {
+  if (!Array.isArray(images)) {
+    return null
+  }
+
+  for (const image of images) {
+    if (typeof image === 'string' && image.trim()) {
+      return image
+    }
+  }
+
+  return null
+}
+
+async function fetchNews() {
+  return runTavilyRequest(TAVILY_SEARCH_API_URL, {
+    api_key: tavilyApiKey,
+    query: `中国大陆 游戏资讯 ${crawlKeyword}`,
+    max_results: crawlLimit,
+    topic: 'news',
+    time_range: 'week',
+    include_images: true,
+    include_answer: false,
+    include_domains: defaultChineseNewsDomains,
+  })
+}
+
+async function extractArticleImage(url) {
+  const payload = await runTavilyRequest(TAVILY_EXTRACT_API_URL, {
+    api_key: tavilyApiKey,
+    urls: [url],
+    include_images: true,
+  })
+
+  const firstResult = Array.isArray(payload.results) ? payload.results[0] : null
+  return pickArticleImage(firstResult?.images)
 }
 
 async function run() {
-  await assertTavilyDailyLimit()
-
   const payload = await fetchNews()
   const results = Array.isArray(payload.results) ? payload.results : []
-  const images = Array.isArray(payload.images) ? payload.images : []
   const filteredResults = results.filter((item) => isAllowedChineseNewsDomain(item.url))
 
   if (filteredResults.length === 0) {
@@ -134,14 +168,30 @@ async function run() {
     return
   }
 
-  const mappedPosts = filteredResults.map((item, index) => ({
-    title: item.title,
-    content: item.content,
-    author_name: '系统资讯',
-    source_type: 'crawl',
-    source_url: item.url,
-    image_url: images[index] || null,
-  }))
+  const articleCandidates = filteredResults.slice(0, MAX_EXTRACT_URLS_PER_RUN)
+  const mappedPosts = []
+
+  for (const item of articleCandidates) {
+    const imageUrl = await extractArticleImage(item.url)
+
+    if (!imageUrl) {
+      continue
+    }
+
+    mappedPosts.push({
+      title: item.title,
+      content: item.content,
+      author_name: '系统资讯',
+      source_type: 'crawl',
+      source_url: item.url,
+      image_url: imageUrl,
+    })
+  }
+
+  if (mappedPosts.length === 0) {
+    console.log('候选资讯里没有拿到带图文章，已全部跳过')
+    return
+  }
 
   const sourceUrls = mappedPosts.map((item) => item.source_url).filter(Boolean)
   const { data: existingPosts, error: queryError } = await supabase
@@ -157,7 +207,7 @@ async function run() {
   const newPosts = mappedPosts.filter((item) => !item.source_url || !existingUrls.has(item.source_url))
 
   if (newPosts.length === 0) {
-    console.log('没有新的资讯需要入库')
+    console.log('没有新的带图资讯需要入库')
     return
   }
 
@@ -167,7 +217,7 @@ async function run() {
     throw new Error(insertError.message)
   }
 
-  console.log(`成功入库 ${newPosts.length} 条资讯`)
+  console.log(`成功入库 ${newPosts.length} 条带图资讯`)
 }
 
 run().catch((error) => {

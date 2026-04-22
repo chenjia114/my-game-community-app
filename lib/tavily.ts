@@ -16,6 +16,8 @@ export const DEFAULT_CHINESE_NEWS_DOMAINS = [
   'duowan.com',
 ] as const
 
+const DEFAULT_EXTRACT_ARTICLE_LIMIT = 19
+
 export interface SearchOptions {
   query: string
   maxResults?: number
@@ -23,6 +25,15 @@ export interface SearchOptions {
   timeRange?: 'day' | 'week' | 'month' | 'year'
   includeDomains?: string[]
   excludeDomains?: string[]
+}
+
+export interface ExtractImageOptions {
+  urls: string[]
+}
+
+export interface ExtractedArticleImage {
+  url: string
+  imageUrl?: string
 }
 
 export function extractDomain(url: string): string {
@@ -95,6 +106,27 @@ export async function searchGameNews(options: SearchOptions): Promise<SearchResu
   return normalizeTavilyResponse(data)
 }
 
+export async function extractArticleImages(options: ExtractImageOptions): Promise<ExtractedArticleImage[]> {
+  const response = await fetch(getApiUrl('/api/news'), {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(options),
+  })
+
+  const data = (await response.json().catch(() => null)) as {
+    items?: ExtractedArticleImage[]
+    error?: string
+  } | null
+
+  if (!response.ok) {
+    throw new Error(data?.error || `资讯图片提取失败：${response.status}`)
+  }
+
+  return data?.items || []
+}
+
 /**
  * 爬取指定关键词的资讯并转换为帖子格式
  * @param keyword 搜索关键词
@@ -106,7 +138,7 @@ export async function crawlNews(
   maxResults: number = 20,
   includeDomains: string[] = [...DEFAULT_CHINESE_NEWS_DOMAINS]
 ): Promise<Omit<import('./types').Post, 'id' | 'created_at'>[]> {
-  const { results, images } = await searchGameNews({
+  const { results } = await searchGameNews({
     query: keyword,
     maxResults,
     topic: 'news',
@@ -116,14 +148,30 @@ export async function crawlNews(
 
   const filteredResults = results.filter((news) => isAllowedChineseNewsDomain(news.url, includeDomains))
 
-  return filteredResults.map((news, index) => ({
-    title: news.title,
-    content: news.content,
-    author_name: '系统资讯',
-    source_type: 'crawl' as const,
-    source_url: news.url,
-    image_url: images[index] || undefined,
-    likes_count: 0,
-    comments_count: 0,
-  }))
+  if (filteredResults.length === 0) {
+    return []
+  }
+
+  const articleCandidates = filteredResults.slice(0, DEFAULT_EXTRACT_ARTICLE_LIMIT)
+  const extractedImages = await extractArticleImages({
+    urls: articleCandidates.map((news) => news.url),
+  })
+  const imageMap = new Map(
+    extractedImages
+      .filter((item) => item.imageUrl)
+      .map((item) => [item.url, item.imageUrl as string])
+  )
+
+  return articleCandidates
+    .map((news) => ({
+      title: news.title,
+      content: news.content,
+      author_name: '系统资讯',
+      source_type: 'crawl' as const,
+      source_url: news.url,
+      image_url: imageMap.get(news.url),
+      likes_count: 0,
+      comments_count: 0,
+    }))
+    .filter((post) => !!post.image_url)
 }
